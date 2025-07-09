@@ -6,7 +6,7 @@
     <title>Panier</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body class="bg-gray-100 p-6">
+  <body class="bg-gray-100 pt-6">
     <div class="max-w-4xl mx-auto">
       <h1 class="text-3xl font-bold mb-6">🛒 Mon Panier</h1>
       <div
@@ -23,6 +23,13 @@
         </select>
       </div>
       <div id="cart" class="space-y-4"></div>
+    </div>
+
+    <div
+      id="globalTotal"
+      class="sticky bottom-0 left-0 right-0 bg-white shadow-lg border-t py-4 px-8 text-right text-2xl font-extrabold text-indigo-700"
+    >
+      Total général : 0.00 €
     </div>
     <script id="cart-data" type="application/json">
       [
@@ -5056,44 +5063,66 @@
           .replace(/[\u0300-\u036f]/g, "");
       }
 
+      function createProductHTML({ quantity, price, amount, item }) {
+        return `
+    <div class="flex bg-white rounded-xl shadow-md overflow-hidden mb-2">
+      <img src="${item.images[0]}" alt="${item.libelle}" class="w-32 h-32 object-cover rounded-l-xl">
+      <div class="p-4 flex flex-col justify-between flex-grow">
+        <div>
+          <h3 class="text-lg font-semibold">${item.libelle}</h3>
+          <p class="text-sm text-gray-600">${item.conditionnement} – ${item.marque}</p>
+        </div>
+        <div class="flex justify-between mt-2 text-sm">
+          <span>Quantité : <strong>${quantity}</strong></span>
+          <span>Prix unitaire : <strong>${price.toFixed(2)} €</strong></span>
+          <span>Total : <strong>${amount.toFixed(2)} €</strong></span>
+        </div>
+      </div>
+    </div>
+  `;
+      }
       function renderCart(filteredItems) {
         const grouped = groupByFamilyCode(filteredItems);
         const cartContainer = document.getElementById("cart");
         cartContainer.innerHTML = "";
+
+        let grandTotal = 0;
+        const fragment = document.createDocumentFragment();
 
         Object.entries(grouped).forEach(([code, items]) => {
           const section = document.createElement("div");
           section.className = "mb-6";
 
           const title = document.createElement("h2");
-          title.className = "text-2xl font-bold mb-3 border-b pb-1";
-          title.textContent = familyCodeLabels[code] || `Famille #${code}`;
+          const stickyClasses = items.length > 2 ? "sticky top-0 z-10" : "";
+          title.className = `${stickyClasses} bg-gray-100 text-2xl font-bold mb-3 border-b p-1 flex justify-between items-center`;
+
+          const totalCategory = items.reduce(
+            (sum, item) => sum + item.amount,
+            0,
+          );
+          grandTotal += totalCategory;
+
+          title.innerHTML = `
+              <span>${familyCodeLabels[code] || `Famille #${code}`}</span>
+              <span class="text-base font-normal text-gray-700">Total : ${totalCategory.toFixed(2)} €</span>
+          `;
           section.appendChild(title);
 
           items.forEach(({ quantity, price, amount, item }) => {
             const product = document.createElement("div");
-            product.className =
-              "flex bg-white rounded-xl shadow-md overflow-hidden mb-2";
-
-            product.innerHTML = `
-        <img src="${item.images[0]}" alt="${item.libelle}" class="w-32 h-32 object-cover rounded-l-xl">
-        <div class="p-4 flex flex-col justify-between flex-grow">
-          <div>
-            <h3 class="text-lg font-semibold">${item.libelle}</h3>
-            <p class="text-sm text-gray-600">${item.conditionnement} – ${item.marque}</p>
-          </div>
-          <div class="flex justify-between mt-2 text-sm">
-            <span>Quantité : <strong>${quantity}</strong></span>
-            <span>Prix unitaire : <strong>${price.toFixed(2)} €</strong></span>
-            <span>Total : <strong>${amount.toFixed(2)} €</strong></span>
-          </div>
-        </div>
-      `;
+            product.innerHTML = createProductHTML({
+              quantity,
+              price,
+              amount,
+              item,
+            });
             section.appendChild(product);
           });
 
-          cartContainer.appendChild(section);
+          fragment.appendChild(section);
         });
+        cartContainer.appendChild(fragment);
       }
 
       function makeUpdateFilters(items) {
@@ -5116,28 +5145,54 @@
           renderCart(filtered);
         };
       }
-      const rawData = document.getElementById("cart-data").textContent;
-      const cartItems = JSON.parse(rawData);
-      const familyDropdown = document.getElementById("familyFilter");
-      const uniqueFamilies = [
-        ...new Set(cartItems.map((i) => i.item.familyCodeNomenclature || "")),
-      ];
-      uniqueFamilies.sort().forEach((code) => {
-        const option = document.createElement("option");
-        option.value = code;
-        option.textContent = familyCodeLabels[code] || `Famille #${code}`;
-        familyDropdown.appendChild(option);
-      });
 
-      const updateFilters = makeUpdateFilters(cartItems);
+      function getData() {
+        const rawData = document.getElementById("cart-data").textContent;
+        const cartItems = JSON.parse(rawData);
+        return cartItems;
+      }
 
-      document
-        .getElementById("searchInput")
-        .addEventListener("input", updateFilters);
-      document
-        .getElementById("familyFilter")
-        .addEventListener("change", updateFilters);
-      renderCart(cartItems);
+      function populateFamilyDropdown(cartItems) {
+        const familyDropdown = document.getElementById("familyFilter");
+        const uniqueFamilies = [
+          ...new Set(cartItems.map((i) => i.item.familyCodeNomenclature || "")),
+        ];
+        uniqueFamilies.sort().forEach((code) => {
+          const option = document.createElement("option");
+          option.value = code;
+          option.textContent = familyCodeLabels[code] || `Famille #${code}`;
+          familyDropdown.appendChild(option);
+        });
+      }
+
+      function initializeListeners(updateFilters) {
+        document
+          .getElementById("searchInput")
+          .addEventListener("input", updateFilters);
+        document
+          .getElementById("familyFilter")
+          .addEventListener("change", updateFilters);
+      }
+
+      function renderTotalGlobal(cartItems) {
+        const totalGlobalComplet = cartItems.reduce(
+          (sum, { amount }) => sum + amount,
+          0,
+        );
+        document.getElementById("globalTotal").textContent =
+          `Total: ${totalGlobalComplet.toFixed(2)} €`;
+      }
+
+      function init() {
+        const cartItems = getData();
+        const updateFilters = makeUpdateFilters(cartItems);
+        populateFamilyDropdown(cartItems);
+        initializeListeners(updateFilters);
+        renderCart(cartItems);
+        renderTotalGlobal(cartItems);
+      }
+
+      init();
     </script>
   </body>
 </html>
